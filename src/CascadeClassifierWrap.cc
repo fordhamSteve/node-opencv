@@ -50,7 +50,7 @@ CascadeClassifierWrap::CascadeClassifierWrap(v8::Value* fileName){
 
 class AsyncDetectMultiScale : public NanAsyncWorker {
  public:
-  AsyncDetectMultiScale(NanCallback *callback, CascadeClassifierWrap *cc, Matrix* im, double scale, int neighbors,  int minw, int minh) : NanAsyncWorker(callback), cc(cc), im(im), scale(scale), neighbors(neighbors), minw(minw), minh(minh)  {}
+  AsyncDetectMultiScale(NanCallback *callback, CascadeClassifierWrap *cc, Matrix* im, int flags, double scale, int neighbors,  int minw, int minh) : NanAsyncWorker(callback), cc(cc), im(im), flags(flags), scale(scale), neighbors(neighbors), minw(minw), minh(minh)  {}
   ~AsyncDetectMultiScale() {}
 
   void Execute () {
@@ -58,11 +58,15 @@ class AsyncDetectMultiScale : public NanAsyncWorker {
 
     cv::Mat gray;
 
-    if(this->im->mat.channels() != 1)
-		    cvtColor(this->im->mat, gray, CV_BGR2GRAY);
-
+    if(this->im->mat.channels() != 1) {
+		cvtColor(this->im->mat, gray, CV_BGR2GRAY);
+	}
+	else {
+		gray = this->im->mat;
+	}
+	
     equalizeHist( gray, gray);
-    this->cc->cc.detectMultiScale(gray, objects, this->scale, this->neighbors, 0 | CV_HAAR_SCALE_IMAGE, cv::Size(this->minw, this->minh));
+    this->cc->cc.detectMultiScale(gray, objects, this->scale, this->neighbors, 0 | this->flags, cv::Size(this->minw, this->minh));
 
     res = objects;
   }
@@ -99,14 +103,12 @@ class AsyncDetectMultiScale : public NanAsyncWorker {
     Matrix* im;
     double scale;
     int neighbors;
+	int flags;
     int minw;
     int minh;
     std::vector<cv::Rect>  res;
 
 };
-
-
-
 
 NAN_METHOD(CascadeClassifierWrap::DetectMultiScale){
   NanScope();
@@ -127,18 +129,20 @@ NAN_METHOD(CascadeClassifierWrap::DetectMultiScale){
   int neighbors = 2;
   if (args.Length() > 3 && args[3]->IsInt32())
     neighbors = args[3]->IntegerValue();
-
+	
+  int flags = 0 | CV_HAAR_SCALE_IMAGE;
+  if (args.Length() > 4 && args[4]->IsInt32())
+    flags = args[4]->IntegerValue(); 
+	
   int minw = 30;
   int minh = 30;
-  if (args.Length() > 5 && args[4]->IsInt32() && args[5]->IsInt32()){
-    minw = args[4]->IntegerValue();
-    minh = args[5]->IntegerValue();
+  if (args.Length() > 6 && args[5]->IsInt32() && args[6]->IsInt32()){
+    minw = args[5]->IntegerValue();
+    minh = args[6]->IntegerValue();
   }
-
 
   NanCallback *callback = new NanCallback(cb.As<Function>());
 
-  NanAsyncQueueWorker( new AsyncDetectMultiScale(callback, self, im, scale, neighbors, minw, minh) );
+  NanAsyncQueueWorker( new AsyncDetectMultiScale(callback, self, im, flags, scale, neighbors, minw, minh) );
   NanReturnUndefined();
-
 }

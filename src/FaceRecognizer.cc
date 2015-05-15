@@ -172,8 +172,13 @@ Handle<Value> UnwrapTrainingData(_NAN_METHOD_ARGS_TYPE args, cv::vector<cv::Mat>
 
 	   int label = valarr->Get(0)->Uint32Value();
      cv::Mat im = fromMatrixOrFilename(valarr->Get(1));
-     im = im.clone();
-     cv::cvtColor(im, im, CV_RGB2GRAY);
+     	 
+	 if(im.channels() != 1) {
+		im = im.clone();
+		cv::cvtColor(im, im, CV_RGB2GRAY);
+		equalizeHist(im, im);
+	 }
+
      labels->push_back(label);
      images->push_back(im);
   }

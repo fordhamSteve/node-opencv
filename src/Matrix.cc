@@ -1413,6 +1413,8 @@ NAN_METHOD(Matrix::Resize){
   NanReturnUndefined();
 }
 
+inline double round( double d ) { return floor( d + 0.5);}
+
 
 NAN_METHOD(Matrix::Rotate){
   NanScope();
