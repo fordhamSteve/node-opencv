@@ -98,6 +98,8 @@ Matrix::Init(Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(ctor, "setWithMask", SetWithMask);
   NODE_SET_PROTOTYPE_METHOD(ctor, "meanWithMask", MeanWithMask);
   NODE_SET_PROTOTYPE_METHOD(ctor, "shift", Shift);
+  
+  NODE_SET_PROTOTYPE_METHOD(ctor, "rstGray", RSTGray);
 
   target->Set(NanNew("Matrix"), ctor->GetFunction());
 };
@@ -1413,9 +1415,6 @@ NAN_METHOD(Matrix::Resize){
   NanReturnUndefined();
 }
 
-inline double round( double d ) { return floor( d + 0.5);}
-
-
 NAN_METHOD(Matrix::Rotate){
   NanScope();
 
@@ -1452,15 +1451,101 @@ NAN_METHOD(Matrix::Rotate){
   }
   //-------------
 
-  int x = args[1]->IsUndefined() ? round(self->mat.size().width / 2) : args[1]->Uint32Value();
-  int y = args[1]->IsUndefined() ? round(self->mat.size().height / 2) : args[2]->Uint32Value();
-
+  int x = args[1]->IsUndefined() ? cvRound(self->mat.size().width / 2) : args[1]->Uint32Value();
+  int y = args[2]->IsUndefined() ? cvRound(self->mat.size().height / 2) : args[2]->Uint32Value();
+  double scale = args[3]->IsUndefined() ? 1.0 : args[3]->NumberValue();
+  
   cv::Point center = cv::Point(x,y);
-  rotMatrix = getRotationMatrix2D(center, angle, 1.0);
-
+  rotMatrix = getRotationMatrix2D(center, angle, scale);
+  
   cv::warpAffine(self->mat, res, rotMatrix, self->mat.size());
   ~self->mat;
   self->mat = res;
+
+  NanReturnUndefined();
+}
+
+NAN_METHOD(Matrix::RSTGray){
+  NanScope();
+
+  Matrix *self = ObjectWrap::Unwrap<Matrix>(args.This());
+  cv::Mat res;
+  
+  float angle = args[0]->ToNumber()->Value();
+
+  // Modification by SergeMv
+  //-------------
+  // If you provide only the angle argument and the angle is multiple of 90, then
+  // we do a fast thing
+  bool rightOrStraight = (ceil(angle) == angle) && (!((int)angle % 90))
+      && (args.Length() == 1);
+  if (rightOrStraight) {
+    int angle2 = ((int)angle) % 360;
+    if (!angle2) { NanReturnUndefined(); }
+    if (angle2 < 0) { angle2 += 360; }
+	// See if we do right angle rotation, we transpose the matrix:
+    if (angle2 % 180) {
+        cv::transpose(self->mat, res);
+        ~self->mat;
+	    self->mat = res;
+    }
+    // Now flip the image
+    int mode = -1; // flip around both axes
+    // If counterclockwise, flip around the x-axis
+    if (angle2 == 90) { mode = 0; }
+    // If clockwise, flip around the y-axis
+    if (angle2 == 270) { mode = 1; }
+    cv::flip(self->mat, self->mat, mode);
+    NanReturnUndefined();
+  }
+  //-------------
+
+    
+  int x = args[1]->IsUndefined() ? cvRound(self->mat.size().width / 2) : args[1]->Uint32Value();
+  int y = args[2]->IsUndefined() ? cvRound(self->mat.size().height / 2) : args[2]->Uint32Value();
+  double scale = args[3]->IsUndefined() ? 1.0 : args[3]->NumberValue();
+  double shiftX = args[4]->IsUndefined() ? 0.0 : args[4]->NumberValue();
+  double shiftY = args[5]->IsUndefined() ? 0.0 : args[5]->NumberValue();
+  int desiredWidth = args[6]->IsUndefined() ? 70 : args[6]->Uint32Value();
+  int desiredHeight = args[7]->IsUndefined() ? 70 : args[7]->Uint32Value();
+  double ellipseCY = args[8]->IsUndefined() ? 0.40 : args[8]->NumberValue();
+  double ellipseW = args[9]->IsUndefined() ? 0.50 : args[9]->NumberValue();
+  double ellipseH = args[10]->IsUndefined() ? 0.80 : args[10]->NumberValue();
+  
+  // Get the transformation matrix for rotating and scaling to the desired angle & size.
+  cv::Point center = cv::Point(x,y);
+  cv::Mat rotMatrix = getRotationMatrix2D(center, angle, scale);
+
+  // Shift as specified
+  rotMatrix.at<double>(0,2) += shiftX;
+  rotMatrix.at<double>(1,2) += shiftY;
+  
+  // Rotate and scale and translate the image to the desired angle & size & position
+  // Note that we use 'w' for the height instead of 'h', because the input face has 1:1 aspect ratio.
+  cv::Mat warped = cv::Mat(desiredHeight, desiredWidth, CV_8U, cv::Scalar(128)); 
+  cv::warpAffine(self->mat, warped, rotMatrix, warped.size());
+  
+  // Give the image a standard brightness and contrast, in case it was too dark or had low contrast.
+  cv::equalizeHist(warped, warped);
+  
+  // Use the "Bilateral Filter" to reduce pixel noise by smoothing the image, but keeping the sharp edges in the face.
+  cv::Mat filtered = cv::Mat(warped.size(), CV_8U);
+  cv::bilateralFilter(warped, filtered, 0, 20.0, 2.0);
+  
+  // Filter out the corners, since we mainly just care about the middle parts.
+  cv::Mat mask = cv::Mat(warped.size(), CV_8U, cv::Scalar(0)); // Start with an empty mask.
+  cv::Point faceCenter = cv::Point( desiredWidth/2, cvRound(desiredHeight * ellipseCY) );
+  cv::Size size = cv::Size( cvRound(desiredWidth * ellipseW), cvRound(desiredHeight * ellipseH) );
+  cv::ellipse(mask, faceCenter, size, 0, 0, 360, cv::Scalar(255), CV_FILLED);
+  
+  // Use the mask, to remove outside pixels.
+  cv::Mat dstImg = cv::Mat(warped.size(), CV_8U, cv::Scalar(128)); // Clear the output image to a default gray.
+  
+  // Apply the elliptical mask on the face.
+  filtered.copyTo(dstImg, mask);  // Copies non-masked pixels from filtered to dstImg.
+  
+  ~self->mat;
+  self->mat = dstImg;
 
   NanReturnUndefined();
 }

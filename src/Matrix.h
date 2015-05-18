@@ -111,6 +111,9 @@ class Matrix: public node::ObjectWrap {
     JSFUNC(SetWithMask)
     JSFUNC(MeanWithMask)
     JSFUNC(Shift)
+	
+	// Custom
+	JSFUNC(RSTGray)
 /*
     static Handle<Value> Val(const Arguments& args);
     static Handle<Value> RowRange(const Arguments& args);
